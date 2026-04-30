@@ -1,6 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0-only */
-/*
- * Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -10,6 +8,7 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
+ *
  */
 
 #ifndef _MSM_VIDC_H_
@@ -28,13 +27,11 @@ enum smem_type {
 };
 
 enum smem_prop {
-	SMEM_UNCACHED = 0x1,
-	SMEM_CACHED = 0x2,
-	SMEM_SECURE = 0x4,
-	SMEM_ADSP = 0x8,
+	SMEM_CACHED,
+	SMEM_SECURE,
 };
 
-/* NOTE:  if you change this enum you MUST update the
+/* NOTE: if you change this enum you MUST update the
  * "buffer-type-tz-usage-table" for any affected target
  * in arch/arm/boot/dts/<arch>.dtsi
  */
@@ -57,11 +54,10 @@ enum hal_buffer {
 
 struct dma_mapping_info {
 	struct device *dev;
-	struct iommu_domain *domain;
+	struct dma_iommu_mapping *mapping;
 	struct sg_table *table;
 	struct dma_buf_attachment *attach;
 	struct dma_buf *buf;
-	void *cb_info;
 };
 
 struct msm_smem {
