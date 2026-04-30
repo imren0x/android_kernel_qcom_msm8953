@@ -15,7 +15,7 @@ ifeq ($(CONFIG_OF),y)
   videodev-objs += v4l2-of.o
 endif
 ifeq ($(CONFIG_TRACEPOINTS),y)
-  videodev-objs += vb2-trace.o v4l2-trace.o
+  videodev-objs += v4l2-trace.o
 endif
 videodev-$(CONFIG_MEDIA_CONTROLLER) += v4l2-mc.o
 
