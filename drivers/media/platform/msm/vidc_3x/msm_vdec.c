@@ -1,6 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
-/*
- * Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -10,6 +8,7 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
+ *
  */
 
 #include <linux/slab.h>
@@ -252,14 +251,14 @@ static struct msm_vidc_ctrl msm_vdec_ctrls[] = {
 		.name = "Extradata Type",
 		.type = V4L2_CTRL_TYPE_MENU,
 		.minimum = V4L2_MPEG_VIDC_EXTRADATA_NONE,
-		.maximum = V4L2_MPEG_VIDC_EXTRADATA_YUV_STATS,
+		.maximum = V4L2_MPEG_VIDC_EXTRADATA_VPX_COLORSPACE,
 		.default_value = V4L2_MPEG_VIDC_EXTRADATA_NONE,
 		.menu_skip_mask = ~(
 			(1 << V4L2_MPEG_VIDC_EXTRADATA_NONE) |
 			(1 << V4L2_MPEG_VIDC_EXTRADATA_MB_QUANTIZATION) |
 			(1 << V4L2_MPEG_VIDC_EXTRADATA_INTERLACE_VIDEO) |
 			(1 << V4L2_MPEG_VIDC_EXTRADATA_VC1_FRAMEDISP) |
-			(1ULL << V4L2_MPEG_VIDC_EXTRADATA_VC1_SEQDISP) |
+			(1 << V4L2_MPEG_VIDC_EXTRADATA_VC1_SEQDISP) |
 			(1 << V4L2_MPEG_VIDC_EXTRADATA_TIMESTAMP) |
 			(1 << V4L2_MPEG_VIDC_EXTRADATA_S3D_FRAME_PACKING) |
 			(1 << V4L2_MPEG_VIDC_EXTRADATA_FRAME_RATE) |
@@ -281,8 +280,7 @@ static struct msm_vidc_ctrl msm_vdec_ctrls[] = {
 			(1 <<
 			V4L2_MPEG_VIDC_EXTRADATA_CONTENT_LIGHT_LEVEL_SEI) |
 			(1 << V4L2_MPEG_VIDC_EXTRADATA_VUI_DISPLAY) |
-			(1 << V4L2_MPEG_VIDC_EXTRADATA_VPX_COLORSPACE) |
-			(1ULL << V4L2_MPEG_VIDC_EXTRADATA_YUV_STATS)
+			(1 << V4L2_MPEG_VIDC_EXTRADATA_VPX_COLORSPACE)
 			),
 		.qmenu = mpeg_video_vidc_extradata,
 	},
@@ -1149,8 +1147,8 @@ int msm_vdec_g_fmt(struct msm_vidc_inst *inst, struct v4l2_format *f)
 			if (!plane_sizes[i]) {
 				f->fmt.pix_mp.plane_fmt[i].sizeimage =
 					get_frame_size(inst, fmt, f->type, i);
-				plane_sizes[i] =
-					f->fmt.pix_mp.plane_fmt[i].sizeimage;
+				plane_sizes[i] = f->fmt.pix_mp.plane_fmt[i].
+					sizeimage;
 			} else
 				f->fmt.pix_mp.plane_fmt[i].sizeimage =
 					plane_sizes[i];
@@ -1394,7 +1392,7 @@ int msm_vdec_querycap(struct msm_vidc_inst *inst, struct v4l2_capability *cap)
 	strlcpy(cap->driver, MSM_VIDC_DRV_NAME, sizeof(cap->driver));
 	strlcpy(cap->card, MSM_VDEC_DVC_NAME, sizeof(cap->card));
 	cap->bus_info[0] = 0;
-	//cap->version = MSM_VIDC_VERSION;
+	cap->version = MSM_VIDC_VERSION;
 	cap->capabilities = V4L2_CAP_VIDEO_CAPTURE_MPLANE |
 						V4L2_CAP_VIDEO_OUTPUT_MPLANE |
 						V4L2_CAP_STREAMING;
@@ -2024,28 +2022,23 @@ static int try_get_ctrl(struct msm_vidc_inst *inst, struct v4l2_ctrl *ctrl)
 		ctrl->val = inst->capability.secure_output2_threshold.max;
 		break;
 	case V4L2_CID_MPEG_VIDEO_H264_ENTROPY_MODE:
-		if (inst->fmts[OUTPUT_PORT].fourcc == V4L2_PIX_FMT_H264) {
-			rc = msm_comm_try_get_prop(inst,
-					HAL_CONFIG_VDEC_ENTROPY, &hprop);
-			if (rc) {
-				dprintk(VIDC_ERR,
-					"%s: Failed getting entropy type: %d",
+		rc = msm_comm_try_get_prop(inst,
+				HAL_CONFIG_VDEC_ENTROPY, &hprop);
+		if (rc) {
+			dprintk(VIDC_ERR, "%s: Failed getting entropy type: %d",
 					__func__, rc);
-				break;
-			}
-			switch (hprop.h264_entropy) {
-			case HAL_H264_ENTROPY_CAVLC:
-				ctrl->val =
-					V4L2_MPEG_VIDEO_H264_ENTROPY_MODE_CAVLC;
-				break;
-			case HAL_H264_ENTROPY_CABAC:
-				ctrl->val =
-					V4L2_MPEG_VIDEO_H264_ENTROPY_MODE_CABAC;
-				break;
-			case HAL_UNUSED_ENTROPY:
-				rc = -ENOTSUPP;
-				break;
-			}
+			break;
+		}
+		switch (hprop.h264_entropy) {
+		case HAL_H264_ENTROPY_CAVLC:
+			ctrl->val = V4L2_MPEG_VIDEO_H264_ENTROPY_MODE_CAVLC;
+			break;
+		case HAL_H264_ENTROPY_CABAC:
+			ctrl->val = V4L2_MPEG_VIDEO_H264_ENTROPY_MODE_CABAC;
+			break;
+		case HAL_UNUSED_ENTROPY:
+			rc = -ENOTSUPP;
+			break;
 		}
 		break;
 	default:
@@ -2611,12 +2604,6 @@ static int try_set_ext_ctrl(struct msm_vidc_inst *inst,
 	int rc = 0, i = 0, fourcc = 0;
 	struct v4l2_ext_control *ext_control;
 	struct v4l2_control control;
-	u32 old_mode = 0;
-	bool mode_changed = false;
-	enum mode {
-		PRIMARY = V4L2_CID_MPEG_VIDC_VIDEO_STREAM_OUTPUT_PRIMARY,
-		SECONDARY = V4L2_CID_MPEG_VIDC_VIDEO_STREAM_OUTPUT_SECONDARY
-	};
 
 	if (!inst || !inst->core || !ctrl) {
 		dprintk(VIDC_ERR,
@@ -2627,7 +2614,6 @@ static int try_set_ext_ctrl(struct msm_vidc_inst *inst,
 	ext_control = ctrl->controls;
 	control.id =
 		V4L2_CID_MPEG_VIDC_VIDEO_STREAM_OUTPUT_MODE;
-	 old_mode = msm_comm_g_ctrl_for_id(inst, control.id);
 
 	for (i = 0; i < ctrl->count; i++) {
 		switch (ext_control[i].id) {
@@ -2639,10 +2625,6 @@ static int try_set_ext_ctrl(struct msm_vidc_inst *inst,
 				dprintk(VIDC_ERR,
 					"%s Failed setting stream output mode : %d\n",
 					__func__, rc);
-
-			if (old_mode == SECONDARY && control.value == PRIMARY)
-				mode_changed = true;
-
 			break;
 		case V4L2_CID_MPEG_VIDC_VIDEO_DPB_COLOR_FORMAT:
 			switch (ext_control[i].value) {
@@ -2654,25 +2636,6 @@ static int try_set_ext_ctrl(struct msm_vidc_inst *inst,
 						dprintk(VIDC_ERR,
 							"%s Release output buffers failed\n",
 							__func__);
-				}
-
-				/* Update buffer reqmt for split to comb mode */
-				if (mode_changed) {
-					fourcc =
-						inst->fmts[CAPTURE_PORT].fourcc;
-					msm_comm_set_color_format(inst,
-						HAL_BUFFER_OUTPUT, fourcc);
-					if (rc) {
-						dprintk(VIDC_ERR,
-							"%s Failed setting output color format : %d\n",
-								__func__, rc);
-						break;
-					}
-					rc = msm_comm_try_get_bufreqs(inst);
-					if (rc)
-						dprintk(VIDC_ERR,
-							"%s Failed to get buffer requirements : %d\n",
-							__func__, rc);
 				}
 				break;
 			case V4L2_MPEG_VIDC_VIDEO_DPB_COLOR_FMT_UBWC:
@@ -2816,5 +2779,4 @@ int msm_vdec_ctrl_init(struct msm_vidc_inst *inst)
 	return msm_comm_ctrl_init(inst, msm_vdec_ctrls,
 		ARRAY_SIZE(msm_vdec_ctrls), &msm_vdec_ctrl_ops);
 }
-
 
