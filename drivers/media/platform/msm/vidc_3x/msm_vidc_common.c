@@ -1839,7 +1839,7 @@ static void handle_ebd(enum hal_command_response cmd, void *data)
 				dprintk(VIDC_INFO,
 					"Failed : Corrupted input stream\n");
 				vbuf->flags |=
-					V4L2_BUF_FLAG_DATA_CORRUPT;
+					V4L2_QCOM_BUF_DATA_CORRUPT;
 			}
 			if (empty_buf_done->status ==
 				VIDC_ERR_START_CODE_NOT_FOUND) {
@@ -2133,7 +2133,7 @@ static void handle_fbd(enum hal_command_response cmd, void *data)
 		if (fill_buf_done->flags1 & HAL_BUFFERFLAG_DECODEONLY)
 			vbuf->flags |= V4L2_QCOM_BUF_FLAG_DECODEONLY;
 		if (fill_buf_done->flags1 & HAL_BUFFERFLAG_DATACORRUPT)
-			vbuf->flags |= V4L2_BUF_FLAG_DATA_CORRUPT;
+			vbuf->flags |= V4L2_QCOM_BUF_DATA_CORRUPT;
 		if (fill_buf_done->flags1 & HAL_BUFFERFLAG_DROP_FRAME)
 			vbuf->flags |= V4L2_QCOM_BUF_DROP_FRAME;
 		if (fill_buf_done->flags1 & HAL_BUFFERFLAG_MBAFF)
