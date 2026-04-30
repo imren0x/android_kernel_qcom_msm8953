@@ -12,7 +12,6 @@
 
 #include <linux/dma-buf.h>
 #include <linux/module.h>
-#include <linux/refcount.h>
 #include <linux/scatterlist.h>
 #include <linux/sched.h>
 #include <linux/slab.h>
@@ -35,7 +34,7 @@ struct vb2_dc_buf {
 
 	/* MMAP related */
 	struct vb2_vmarea_handler	handler;
-	refcount_t			refcount;
+	atomic_t			refcount;
 	struct sg_table			*sgt_base;
 
 	/* DMABUF related */
@@ -87,7 +86,7 @@ static unsigned int vb2_dc_num_users(void *buf_priv)
 {
 	struct vb2_dc_buf *buf = buf_priv;
 
-	return refcount_read(&buf->refcount);
+	return atomic_read(&buf->refcount);
 }
 
 static void vb2_dc_prepare(void *buf_priv)
@@ -123,7 +122,7 @@ static void vb2_dc_put(void *buf_priv)
 {
 	struct vb2_dc_buf *buf = buf_priv;
 
-	if (!refcount_dec_and_test(&buf->refcount))
+	if (!atomic_dec_and_test(&buf->refcount))
 		return;
 
 	if (buf->sgt_base) {
@@ -154,7 +153,7 @@ static void *vb2_dc_alloc(struct device *dev, unsigned long attrs,
 	buf->cookie = dma_alloc_attrs(dev, size, &buf->dma_addr,
 					GFP_KERNEL | gfp_flags, buf->attrs);
 	if (!buf->cookie) {
-		dev_err(dev, "dma_alloc_coherent of size %lu failed\n", size);
+		dev_err(dev, "dma_alloc_coherent of size %ld failed\n", size);
 		kfree(buf);
 		return ERR_PTR(-ENOMEM);
 	}
@@ -171,7 +170,7 @@ static void *vb2_dc_alloc(struct device *dev, unsigned long attrs,
 	buf->handler.put = vb2_dc_put;
 	buf->handler.arg = buf;
 
-	refcount_set(&buf->refcount, 1);
+	atomic_inc(&buf->refcount);
 
 	return buf;
 }
@@ -206,9 +205,9 @@ static int vb2_dc_mmap(void *buf_priv, struct vm_area_struct *vma)
 
 	vma->vm_ops->open(vma);
 
-	pr_debug("%s: mapped dma addr 0x%08lx at 0x%08lx, size %lu\n",
-		 __func__, (unsigned long)buf->dma_addr, vma->vm_start,
-		 buf->size);
+	pr_debug("%s: mapped dma addr 0x%08lx at 0x%08lx, size %ld\n",
+		__func__, (unsigned long)buf->dma_addr, vma->vm_start,
+		buf->size);
 
 	return 0;
 }
@@ -222,7 +221,7 @@ struct vb2_dc_attachment {
 	enum dma_data_direction dma_dir;
 };
 
-static int vb2_dc_dmabuf_ops_attach(struct dma_buf *dbuf,
+static int vb2_dc_dmabuf_ops_attach(struct dma_buf *dbuf, struct device *dev,
 	struct dma_buf_attachment *dbuf_attach)
 {
 	struct vb2_dc_attachment *attach;
@@ -352,12 +351,13 @@ static int vb2_dc_dmabuf_ops_mmap(struct dma_buf *dbuf,
 	return vb2_dc_mmap(dbuf->priv, vma);
 }
 
-static const struct dma_buf_ops vb2_dc_dmabuf_ops = {
+static struct dma_buf_ops vb2_dc_dmabuf_ops = {
 	.attach = vb2_dc_dmabuf_ops_attach,
 	.detach = vb2_dc_dmabuf_ops_detach,
 	.map_dma_buf = vb2_dc_dmabuf_ops_map,
 	.unmap_dma_buf = vb2_dc_dmabuf_ops_unmap,
-	.map = vb2_dc_dmabuf_ops_kmap,
+	.kmap = vb2_dc_dmabuf_ops_kmap,
+	.kmap_atomic = vb2_dc_dmabuf_ops_kmap,
 	.vmap = vb2_dc_dmabuf_ops_vmap,
 	.mmap = vb2_dc_dmabuf_ops_mmap,
 	.release = vb2_dc_dmabuf_ops_release,
@@ -407,7 +407,7 @@ static struct dma_buf *vb2_dc_get_dmabuf(void *buf_priv, unsigned long flags)
 		return NULL;
 
 	/* dmabuf keeps reference to vb2 buffer */
-	refcount_inc(&buf->refcount);
+	atomic_inc(&buf->refcount);
 
 	return dbuf;
 }
@@ -433,10 +433,8 @@ static void vb2_dc_put_userptr(void *buf_priv)
 		pages = frame_vector_pages(buf->vec);
 		/* sgt should exist only if vector contains pages... */
 		BUG_ON(IS_ERR(pages));
-		if (buf->dma_dir == DMA_FROM_DEVICE ||
-		    buf->dma_dir == DMA_BIDIRECTIONAL)
-			for (i = 0; i < frame_vector_count(buf->vec); i++)
-				set_page_dirty_lock(pages[i]);
+		for (i = 0; i < frame_vector_count(buf->vec); i++)
+			set_page_dirty_lock(pages[i]);
 		sg_free_table(sgt);
 		kfree(sgt);
 	}
@@ -480,7 +478,7 @@ static void *vb2_dc_get_userptr(struct device *dev, unsigned long vaddr,
 {
 	struct vb2_dc_buf *buf;
 	struct frame_vector *vec;
-	unsigned int offset;
+	unsigned long offset;
 	int n_pages, i;
 	int ret = 0;
 	struct sg_table *sgt;
@@ -508,9 +506,8 @@ static void *vb2_dc_get_userptr(struct device *dev, unsigned long vaddr,
 	buf->dev = dev;
 	buf->dma_dir = dma_dir;
 
-	offset = lower_32_bits(offset_in_page(vaddr));
-	vec = vb2_create_framevec(vaddr, size, dma_dir == DMA_FROM_DEVICE ||
-					       dma_dir == DMA_BIDIRECTIONAL);
+	offset = vaddr & ~PAGE_MASK;
+	vec = vb2_create_framevec(vaddr, size, dma_dir == DMA_FROM_DEVICE);
 	if (IS_ERR(vec)) {
 		ret = PTR_ERR(vec);
 		goto fail_buf;

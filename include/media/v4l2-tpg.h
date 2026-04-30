@@ -1,8 +1,20 @@
-/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * v4l2-tpg.h - Test Pattern Generator
  *
  * Copyright 2014 Cisco Systems, Inc. and/or its affiliates. All rights reserved.
+ *
+ * This program is free software; you may redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; version 2 of the License.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
+ * BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+ * ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+ * CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
  */
 
 #ifndef _V4L2_TPG_H_
@@ -14,51 +26,8 @@
 #include <linux/slab.h>
 #include <linux/vmalloc.h>
 #include <linux/videodev2.h>
+#include <media/v4l2-tpg-colors.h>
 
-struct tpg_rbg_color8 {
-	unsigned char r, g, b;
-};
-
-struct tpg_rbg_color16 {
-	__u16 r, g, b;
-};
-
-enum tpg_color {
-	TPG_COLOR_CSC_WHITE,
-	TPG_COLOR_CSC_YELLOW,
-	TPG_COLOR_CSC_CYAN,
-	TPG_COLOR_CSC_GREEN,
-	TPG_COLOR_CSC_MAGENTA,
-	TPG_COLOR_CSC_RED,
-	TPG_COLOR_CSC_BLUE,
-	TPG_COLOR_CSC_BLACK,
-	TPG_COLOR_75_YELLOW,
-	TPG_COLOR_75_CYAN,
-	TPG_COLOR_75_GREEN,
-	TPG_COLOR_75_MAGENTA,
-	TPG_COLOR_75_RED,
-	TPG_COLOR_75_BLUE,
-	TPG_COLOR_100_WHITE,
-	TPG_COLOR_100_YELLOW,
-	TPG_COLOR_100_CYAN,
-	TPG_COLOR_100_GREEN,
-	TPG_COLOR_100_MAGENTA,
-	TPG_COLOR_100_RED,
-	TPG_COLOR_100_BLUE,
-	TPG_COLOR_100_BLACK,
-	TPG_COLOR_TEXTFG,
-	TPG_COLOR_TEXTBG,
-	TPG_COLOR_RANDOM,
-	TPG_COLOR_RAMP,
-	TPG_COLOR_MAX = TPG_COLOR_RAMP + 256
-};
-
-extern const struct tpg_rbg_color8 tpg_colors[TPG_COLOR_MAX];
-extern const unsigned short tpg_rec709_to_linear[255 * 16 + 1];
-extern const unsigned short tpg_linear_to_rec709[255 * 16 + 1];
-extern const struct tpg_rbg_color16 tpg_csc_colors[V4L2_COLORSPACE_DCI_P3 + 1]
-					  [V4L2_XFER_FUNC_SMPTE2084 + 1]
-					  [TPG_COLOR_CSC_BLACK + 1];
 enum tpg_pattern {
 	TPG_PAT_75_COLORBAR,
 	TPG_PAT_100_COLORBAR,
@@ -118,13 +87,6 @@ enum tpg_move_mode {
 	TPG_MOVE_POS_FAST,
 };
 
-enum tgp_color_enc {
-	TGP_COLOR_ENC_RGB,
-	TGP_COLOR_ENC_YCBCR,
-	TGP_COLOR_ENC_HSV,
-	TGP_COLOR_ENC_LUMA,
-};
-
 extern const char * const tpg_aspect_strings[];
 
 #define TPG_MAX_PLANES 3
@@ -157,11 +119,10 @@ struct tpg_data {
 	u8				saturation;
 	s16				hue;
 	u32				fourcc;
-	enum tgp_color_enc		color_enc;
+	bool				is_yuv;
 	u32				colorspace;
 	u32				xfer_func;
 	u32				ycbcr_enc;
-	u32				hsv_enc;
 	/*
 	 * Stores the actual transfer function, i.e. will never be
 	 * V4L2_XFER_FUNC_DEFAULT.
@@ -171,7 +132,6 @@ struct tpg_data {
 	 * Stores the actual Y'CbCr encoding, i.e. will never be
 	 * V4L2_YCBCR_ENC_DEFAULT.
 	 */
-	u32				real_hsv_enc;
 	u32				real_ycbcr_enc;
 	u32				quantization;
 	/*
@@ -372,19 +332,6 @@ static inline void tpg_s_ycbcr_enc(struct tpg_data *tpg, u32 ycbcr_enc)
 static inline u32 tpg_g_ycbcr_enc(const struct tpg_data *tpg)
 {
 	return tpg->ycbcr_enc;
-}
-
-static inline void tpg_s_hsv_enc(struct tpg_data *tpg, u32 hsv_enc)
-{
-	if (tpg->hsv_enc == hsv_enc)
-		return;
-	tpg->hsv_enc = hsv_enc;
-	tpg->recalc_colors = true;
-}
-
-static inline u32 tpg_g_hsv_enc(const struct tpg_data *tpg)
-{
-	return tpg->hsv_enc;
 }
 
 static inline void tpg_s_xfer_func(struct tpg_data *tpg, u32 xfer_func)
