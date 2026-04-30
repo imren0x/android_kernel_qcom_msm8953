@@ -1,4 +1,5 @@
-/* Copyright (c) 2012-2018, 2020,2021 The Linux Foundation. All rights reserved.
+/*
+ * Copyright (c) 2012-2020, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -8,7 +9,6 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- *
  */
 
 #ifndef _MSM_VIDC_INTERNAL_H_
@@ -40,13 +40,11 @@
 #define MSM_VIDC_VERSION KERNEL_VERSION(0, 0, 1)
 #define MAX_DEBUGFS_NAME 50
 #define DEFAULT_TIMEOUT 3
-#define DEFAULT_HEIGHT 480
-#define DEFAULT_WIDTH 720
+#define DEFAULT_HEIGHT 1088
+#define DEFAULT_WIDTH 1920
 #define MIN_SUPPORTED_WIDTH 32
 #define MIN_SUPPORTED_HEIGHT 32
 #define DEFAULT_FPS 15
-#define HD_WIDTH 1920
-#define HD_HEIGHT 1088
 
 /* Maintains the number of FTB's between each FBD over a window */
 #define DCVS_FTB_WINDOW 32
@@ -357,7 +355,7 @@ struct buffer_info {
 	int buff_off[VIDEO_MAX_PLANES];
 	int size[VIDEO_MAX_PLANES];
 	unsigned long uvaddr[VIDEO_MAX_PLANES];
-	ion_phys_addr_t device_addr[VIDEO_MAX_PLANES];
+	phys_addr_t device_addr[VIDEO_MAX_PLANES];
 	struct msm_smem smem[VIDEO_MAX_PLANES];
 	enum v4l2_memory memory;
 	u32 v4l2_index;
@@ -372,10 +370,14 @@ struct buffer_info {
 };
 
 struct buffer_info *device_to_uvaddr(struct msm_vidc_list *buf_list,
-				ion_phys_addr_t device_addr);
+				phys_addr_t device_addr);
 int buf_ref_get(struct msm_vidc_inst *inst, struct buffer_info *binfo);
 int buf_ref_put(struct msm_vidc_inst *inst, struct buffer_info *binfo);
-int output_buffer_cache_invalidate(struct msm_vidc_inst *inst,
+
+int qbuf_cache_operations(struct msm_vidc_inst *inst,
+				struct buffer_info *binfo);
+int dqbuf_cache_operations(struct msm_vidc_inst *inst,
+				struct v4l2_buffer *b,
 				struct buffer_info *binfo);
 int qbuf_dynamic_buf(struct msm_vidc_inst *inst,
 			struct buffer_info *binfo);

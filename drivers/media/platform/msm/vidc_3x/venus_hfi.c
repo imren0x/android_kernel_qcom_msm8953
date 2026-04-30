@@ -1,5 +1,5 @@
-/* Copyright (c) 2012-2016, 2018-2020, The Linux Foundation.
- * All rights reserved.
+/*
+ * Copyright (c) 2012-2016, 2018-2020, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -9,12 +9,11 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- *
  */
 
 #include <asm/dma-iommu.h>
 #include <asm/memory.h>
-#include <linux/clk/msm-clk.h>
+#include <linux/clk/qcom.h>
 #include <linux/coresight-stm.h>
 #include <linux/delay.h>
 #include <linux/devfreq.h>
@@ -29,7 +28,8 @@
 #include <linux/slab.h>
 #include <linux/workqueue.h>
 #include <soc/qcom/scm.h>
-#include <soc/qcom/smem.h>
+#include <soc/qcom/socinfo.h>
+#include <linux/soc/qcom/smem.h>
 #include <soc/qcom/subsystem_restart.h>
 #include "hfi_packetization.h"
 #include "msm_vidc_debug.h"
@@ -132,7 +132,7 @@ static void __dump_packet(u8 *packet)
 	/* row must contain enough for 0xdeadbaad * 8 to be converted into
 	 * "de ad ba ab " * 8 + '\0'
 	 */
-	char row[3 * row_size];
+	char row[96]; /*char row[3 * row_size];*/
 
 	for (c = 0; c * row_size < packet_size; ++c) {
 		int bytes_to_read = ((c + 1) * row_size > packet_size) ?
@@ -587,7 +587,8 @@ static int __smem_alloc(struct venus_hfi_device *dev,
 		goto fail_smem_alloc;
 	}
 
-	dprintk(VIDC_DBG, "__smem_alloc: ptr = %pK, size = %d\n",
+	dprintk(VIDC_DBG, "%s: ptr = %pK, size = %d\n",
+			__func__,
 			alloc->kvaddr, size);
 	rc = msm_smem_cache_operations(alloc->dma_buf, 0, alloc->size,
 		SMEM_CACHE_CLEAN);
@@ -1104,14 +1105,9 @@ static int __tzbsp_set_video_state(enum tzbsp_video_state state)
 	desc.args[1] = cmd.spare = 0;
 	desc.arginfo = SCM_ARGS(2);
 
-	if (!is_scm_armv8()) {
-		rc = scm_call(SCM_SVC_BOOT, TZBSP_VIDEO_SET_STATE, &cmd,
-				sizeof(cmd), &tzbsp_rsp, sizeof(tzbsp_rsp));
-	} else {
-		rc = scm_call2(SCM_SIP_FNID(SCM_SVC_BOOT,
-				TZBSP_VIDEO_SET_STATE), &desc);
-		tzbsp_rsp = desc.ret[0];
-	}
+	rc = scm_call2(SCM_SIP_FNID(SCM_SVC_BOOT,
+			TZBSP_VIDEO_SET_STATE), &desc);
+	tzbsp_rsp = desc.ret[0];
 
 	if (rc) {
 		dprintk(VIDC_ERR, "Failed scm_call %d\n", rc);
@@ -1317,9 +1313,6 @@ static int venus_hfi_suspend(void *dev)
 	} else if (!device->res->sw_power_collapsible) {
 		return -ENOTSUPP;
 	}
-
-	dprintk(VIDC_DBG, "Suspending Venus\n");
-	flush_delayed_work(&venus_hfi_pm_work);
 
 	mutex_lock(&device->lock);
 
@@ -1674,14 +1667,13 @@ static int __iface_msgq_read(struct venus_hfi_device *device, void *pkt)
 		goto read_error_null;
 	}
 
-	if (device->iface_queues[VIDC_IFACEQ_MSGQ_IDX].
-		q_array.align_virtual_addr == 0) {
+	q_info = &device->iface_queues[VIDC_IFACEQ_MSGQ_IDX];
+	if (q_info->q_array.align_virtual_addr == 0) {
 		dprintk(VIDC_ERR, "cannot read from shared MSG Q's\n");
 		rc = -ENODATA;
 		goto read_error_null;
 	}
 
-	q_info = &device->iface_queues[VIDC_IFACEQ_MSGQ_IDX];
 	if (!__read_queue(q_info, (u8 *)pkt, &tx_req_is_set)) {
 		__hal_sim_modify_msg_packet((u8 *)pkt, device);
 		if (tx_req_is_set)
@@ -1714,14 +1706,13 @@ static int __iface_dbgq_read(struct venus_hfi_device *device, void *pkt)
 		goto dbg_error_null;
 	}
 
-	if (device->iface_queues[VIDC_IFACEQ_DBGQ_IDX].
-		q_array.align_virtual_addr == 0) {
+	q_info = &device->iface_queues[VIDC_IFACEQ_DBGQ_IDX];
+	if (q_info->q_array.align_virtual_addr == 0) {
 		dprintk(VIDC_ERR, "cannot read from shared DBG Q's\n");
 		rc = -ENODATA;
 		goto dbg_error_null;
 	}
 
-	q_info = &device->iface_queues[VIDC_IFACEQ_DBGQ_IDX];
 	if (!__read_queue(q_info, (u8 *)pkt, &tx_req_is_set)) {
 		if (tx_req_is_set)
 			__write_register(device, VIDC_CPU_IC_SOFTINT,
@@ -1974,7 +1965,7 @@ static int __interface_queues_init(struct venus_hfi_device *dev)
 	q_hdr = iface_q->q_hdr;
 	q_hdr->qhdr_start_addr = (u32)iface_q->q_array.align_device_addr;
 	q_hdr->qhdr_type |= HFI_Q_ID_HOST_TO_CTRL_CMD_Q;
-	if ((ion_phys_addr_t)q_hdr->qhdr_start_addr !=
+	if ((phys_addr_t)q_hdr->qhdr_start_addr !=
 		iface_q->q_array.align_device_addr) {
 		dprintk(VIDC_ERR, "Invalid CMDQ device address (%pa)",
 			&iface_q->q_array.align_device_addr);
@@ -1984,7 +1975,7 @@ static int __interface_queues_init(struct venus_hfi_device *dev)
 	q_hdr = iface_q->q_hdr;
 	q_hdr->qhdr_start_addr = (u32)iface_q->q_array.align_device_addr;
 	q_hdr->qhdr_type |= HFI_Q_ID_CTRL_TO_HOST_MSG_Q;
-	if ((ion_phys_addr_t)q_hdr->qhdr_start_addr !=
+	if ((phys_addr_t)q_hdr->qhdr_start_addr !=
 		iface_q->q_array.align_device_addr) {
 		dprintk(VIDC_ERR, "Invalid MSGQ device address (%pa)",
 			&iface_q->q_array.align_device_addr);
@@ -1999,14 +1990,14 @@ static int __interface_queues_init(struct venus_hfi_device *dev)
 	 * need of interrupt from video hardware for debug messages
 	 */
 	q_hdr->qhdr_rx_req = 0;
-	if ((ion_phys_addr_t)q_hdr->qhdr_start_addr !=
+	if ((phys_addr_t)q_hdr->qhdr_start_addr !=
 		iface_q->q_array.align_device_addr) {
 		dprintk(VIDC_ERR, "Invalid DBGQ device address (%pa)",
 			&iface_q->q_array.align_device_addr);
 	}
 
 	value = (u32)dev->iface_q_table.align_device_addr;
-	if ((ion_phys_addr_t)value !=
+	if ((phys_addr_t)value !=
 		dev->iface_q_table.align_device_addr) {
 		dprintk(VIDC_ERR,
 			"Invalid iface_q_table device address (%pa)",
@@ -2020,7 +2011,7 @@ static int __interface_queues_init(struct venus_hfi_device *dev)
 			sizeof(struct hfi_mem_map_table);
 		qdss->mem_map_table_base_addr =
 			(u32)mem_map_table_base_addr;
-		if ((ion_phys_addr_t)qdss->mem_map_table_base_addr !=
+		if ((phys_addr_t)qdss->mem_map_table_base_addr !=
 				mem_map_table_base_addr) {
 			dprintk(VIDC_ERR,
 					"Invalid mem_map_table_base_addr (%#lx)",
@@ -2047,7 +2038,7 @@ static int __interface_queues_init(struct venus_hfi_device *dev)
 		}
 
 		value = (u32)dev->qdss.align_device_addr;
-		if ((ion_phys_addr_t)value !=
+		if ((phys_addr_t)value !=
 				dev->qdss.align_device_addr) {
 			dprintk(VIDC_ERR, "Invalid qdss device address (%pa)",
 					&dev->qdss.align_device_addr);
@@ -2057,7 +2048,7 @@ static int __interface_queues_init(struct venus_hfi_device *dev)
 	vsfr = (struct hfi_sfr_struct *) dev->sfr.align_virtual_addr;
 	vsfr->bufSize = ALIGNED_SFR_SIZE;
 	value = (u32)dev->sfr.align_device_addr;
-	if ((ion_phys_addr_t)value !=
+	if ((phys_addr_t)value !=
 		dev->sfr.align_device_addr) {
 		dprintk(VIDC_ERR, "Invalid sfr device address (%pa)",
 			&dev->sfr.align_device_addr);
@@ -2230,12 +2221,8 @@ static int venus_hfi_core_init(void *device)
 
 	if (dev->res->pm_qos_latency_us) {
 #ifdef CONFIG_SMP
-		if (dev->res->is_qos_type_all_cores) {
-			dev->qos.type = PM_QOS_REQ_ALL_CORES;
-		} else {
-			dev->qos.type = PM_QOS_REQ_AFFINE_IRQ;
-			dev->qos.irq = dev->hal_data->irq;
-		}
+		dev->qos.type = PM_QOS_REQ_AFFINE_IRQ;
+		dev->qos.irq = dev->hal_data->irq;
 #endif
 		pm_qos_add_request(&dev->qos, PM_QOS_CPU_DMA_LATENCY,
 				dev->res->pm_qos_latency_us);
@@ -3107,32 +3094,25 @@ static int __check_core_registered(struct hal_device_data core,
 			device = list_entry(curr,
 				struct venus_hfi_device, list);
 			if (device && device->hal_data->irq == irq &&
-				(CONTAINS(device->hal_data->
-						firmware_base,
-						FIRMWARE_SIZE, fw_addr) ||
+				(CONTAINS(device->hal_data->firmware_base,
+					FIRMWARE_SIZE, fw_addr) ||
 				CONTAINS(fw_addr, FIRMWARE_SIZE,
-						device->hal_data->
-						firmware_base) ||
-				CONTAINS(device->hal_data->
-						register_base,
-						reg_size, reg_addr) ||
+					device->hal_data->firmware_base) ||
+				CONTAINS(device->hal_data->register_base,
+					reg_size, reg_addr) ||
 				CONTAINS(reg_addr, reg_size,
-						device->hal_data->
-						register_base) ||
-				OVERLAPS(device->hal_data->
-						register_base,
-						reg_size, reg_addr, reg_size) ||
+					device->hal_data->register_base) ||
+				OVERLAPS(device->hal_data->register_base,
+					reg_size, reg_addr, reg_size) ||
 				OVERLAPS(reg_addr, reg_size,
-						device->hal_data->
-						register_base, reg_size) ||
-				OVERLAPS(device->hal_data->
-						firmware_base,
-						FIRMWARE_SIZE, fw_addr,
-						FIRMWARE_SIZE) ||
+					device->hal_data->register_base,
+					reg_size) ||
+				OVERLAPS(device->hal_data->firmware_base,
+					FIRMWARE_SIZE, fw_addr,
+					FIRMWARE_SIZE) ||
 				OVERLAPS(fw_addr, FIRMWARE_SIZE,
-						device->hal_data->
-						firmware_base,
-						FIRMWARE_SIZE))) {
+					device->hal_data->firmware_base,
+					FIRMWARE_SIZE))) {
 				return 0;
 			}
 			dprintk(VIDC_INFO, "Device not registered\n");
@@ -3328,7 +3308,7 @@ static void __flush_debug_queue(struct venus_hfi_device *device, u8 *packet)
 	}
 
 	if (!packet) {
-		packet = kzalloc(VIDC_IFACEQ_VAR_HUGE_PKT_SIZE, GFP_TEMPORARY);
+		packet = kzalloc(VIDC_IFACEQ_VAR_HUGE_PKT_SIZE, GFP_KERNEL);
 		if (!packet) {
 			dprintk(VIDC_ERR, "In %s() Fail to allocate mem\n",
 				__func__);
@@ -3417,7 +3397,7 @@ static int __response_handler(struct venus_hfi_device *device)
 
 	packets = device->response_pkt;
 
-	raw_packet = kzalloc(VIDC_IFACEQ_VAR_HUGE_PKT_SIZE, GFP_TEMPORARY);
+	raw_packet = kzalloc(VIDC_IFACEQ_VAR_HUGE_PKT_SIZE, GFP_KERNEL);
 	if (!raw_packet || !packets) {
 		dprintk(VIDC_ERR, "%s: Failed to allocate memory\n",  __func__);
 		kfree(raw_packet);
@@ -3981,7 +3961,7 @@ static int __init_resources(struct venus_hfi_device *device,
 
 	device->sys_init_capabilities =
 		kzalloc(sizeof(struct msm_vidc_capability)
-		* VIDC_MAX_SESSIONS, GFP_TEMPORARY);
+		* VIDC_MAX_SESSIONS, GFP_KERNEL);
 
 	return rc;
 
@@ -4040,6 +4020,7 @@ static int __protect_cp_mem(struct venus_hfi_device *device)
 	int rc = 0;
 	struct context_bank_info *cb;
 	struct scm_desc desc = {0};
+	bool is_cma_enabled = false;
 
 	if (!device)
 		return -EINVAL;
@@ -4049,9 +4030,11 @@ static int __protect_cp_mem(struct venus_hfi_device *device)
 	memprot.cp_nonpixel_start = 0x0;
 	memprot.cp_nonpixel_size = 0x0;
 
+	is_cma_enabled = device->res->cma_status;
 	list_for_each_entry(cb, &device->res->context_banks, list) {
 		if (!strcmp(cb->name, "venus_ns")) {
 			desc.args[1] = memprot.cp_size =
+				is_cma_enabled ? cb->cma.addr_range.start :
 				cb->addr_range.start;
 			dprintk(VIDC_DBG, "%s memprot.cp_size: %#x\n",
 				__func__, memprot.cp_size);
@@ -4059,8 +4042,10 @@ static int __protect_cp_mem(struct venus_hfi_device *device)
 
 		if (!strcmp(cb->name, "venus_sec_non_pixel")) {
 			desc.args[2] = memprot.cp_nonpixel_start =
+				is_cma_enabled ? cb->cma.addr_range.start :
 				cb->addr_range.start;
 			desc.args[3] = memprot.cp_nonpixel_size =
+				is_cma_enabled ? cb->cma.addr_range.size :
 				cb->addr_range.size;
 			dprintk(VIDC_DBG,
 				"%s memprot.cp_nonpixel_start: %#x size: %#x\n",
@@ -4068,17 +4053,10 @@ static int __protect_cp_mem(struct venus_hfi_device *device)
 				memprot.cp_nonpixel_size);
 		}
 	}
-
-	if (!is_scm_armv8()) {
-		rc = scm_call(SCM_SVC_MP, TZBSP_MEM_PROTECT_VIDEO_VAR, &memprot,
-			sizeof(memprot), &resp, sizeof(resp));
-	} else {
-		desc.arginfo = SCM_ARGS(4);
-		rc = scm_call2(SCM_SIP_FNID(SCM_SVC_MP,
-			       TZBSP_MEM_PROTECT_VIDEO_VAR), &desc);
-		resp = desc.ret[0];
-	}
-
+	desc.arginfo = SCM_ARGS(4);
+	rc = scm_call2(SCM_SIP_FNID(SCM_SVC_MP,
+		       TZBSP_MEM_PROTECT_VIDEO_VAR), &desc);
+	resp = desc.ret[0];
 	if (rc) {
 		dprintk(VIDC_ERR, "Failed to protect memory(%d) response: %d\n",
 				rc, resp);
@@ -4409,12 +4387,8 @@ static inline int __resume(struct venus_hfi_device *device)
 
 	if (device->res->pm_qos_latency_us) {
 #ifdef CONFIG_SMP
-		if (device->res->is_qos_type_all_cores) {
-			device->qos.type = PM_QOS_REQ_ALL_CORES;
-		} else {
-			device->qos.type = PM_QOS_REQ_AFFINE_IRQ;
-			device->qos.irq = device->hal_data->irq;
-		}
+		device->qos.type = PM_QOS_REQ_AFFINE_IRQ;
+		device->qos.irq = device->hal_data->irq;
 #endif
 		pm_qos_add_request(&device->qos, PM_QOS_CPU_DMA_LATENCY,
 				device->res->pm_qos_latency_us);
@@ -4514,7 +4488,7 @@ static int venus_hfi_get_fw_info(void *dev, struct hal_fw_info *fw_info)
 {
 	int i = 0, j = 0;
 	struct venus_hfi_device *device = dev;
-	u32 smem_block_size = 0;
+	size_t smem_block_size = 0;
 	u8 *smem_table_ptr;
 	char version[VENUS_VERSION_LENGTH] = "";
 	const u32 smem_image_index_venus = 14 * 128;
@@ -4528,8 +4502,9 @@ static int venus_hfi_get_fw_info(void *dev, struct hal_fw_info *fw_info)
 
 	mutex_lock(&device->lock);
 
-	smem_table_ptr = smem_get_entry(SMEM_IMAGE_VERSION_TABLE,
-			&smem_block_size, 0, SMEM_ANY_HOST_FLAG);
+	smem_table_ptr = qcom_smem_get(QCOM_SMEM_HOST_ANY,
+					SMEM_IMAGE_VERSION_TABLE,
+					&smem_block_size);
 	if (smem_table_ptr &&
 			((smem_image_index_venus +
 			  VENUS_VERSION_LENGTH) <= smem_block_size))
@@ -4633,7 +4608,7 @@ static struct venus_hfi_device *__add_device(u32 device_id,
 	}
 
 	hdevice->response_pkt = kmalloc_array(max_packets,
-				sizeof(*hdevice->response_pkt), GFP_TEMPORARY);
+				sizeof(*hdevice->response_pkt), GFP_KERNEL);
 	if (!hdevice->response_pkt) {
 		dprintk(VIDC_ERR, "failed to allocate response_pkt\n");
 		goto err_cleanup;

@@ -1,4 +1,5 @@
-/* Copyright (c) 2012-2019, 2021 The Linux Foundation. All rights reserved.
+/*
+ * Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -8,7 +9,6 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- *
  */
 
 #include <linux/jiffies.h>
@@ -52,8 +52,8 @@ const char *const mpeg_video_vidc_extradata[] = {
 	"Extradata none",
 	"Extradata MB Quantization",
 	"Extradata Interlace Video",
+	"Extradata enc DTS",
 	"Extradata VC1 Framedisp",
-	"Extradata VC1 Seqdisp",
 	"Extradata timestamp",
 	"Extradata S3D Frame Packing",
 	"Extradata Frame Rate",
@@ -72,6 +72,7 @@ const char *const mpeg_video_vidc_extradata[] = {
 	"Extradata LTR",
 	"Extradata macroblock metadata",
 	"Extradata VQZip SEI",
+	"Extradata HDR10+ Metadata",
 	"Extradata YUV Stats",
 	"Extradata ROI QP",
 	"Extradata output crop",
@@ -81,7 +82,9 @@ const char *const mpeg_video_vidc_extradata[] = {
 	"Extradata display VUI",
 	"Extradata vpx color space",
 	"Extradata UBWC CR stats info",
-	"Extradata enc frame QP"
+	"Extradata enc frame QP",
+	"Extradata VC1 Seqdisp",
+	"Extradata YUV Stats"
 };
 
 struct getprop_buf {
@@ -516,7 +519,7 @@ static int msm_comm_vote_bus(struct msm_vidc_core *core)
 		++vote_data_count;
 
 	vote_data = kcalloc(vote_data_count, sizeof(*vote_data),
-			GFP_TEMPORARY);
+			GFP_KERNEL);
 	if (!vote_data) {
 		dprintk(VIDC_ERR, "%s: failed to allocate memory\n", __func__);
 		rc = -ENOMEM;
@@ -672,7 +675,7 @@ static void handle_sys_init_done(enum hal_command_response cmd, void *data)
 	struct msm_vidc_cb_cmd_done *response = data;
 	struct msm_vidc_core *core;
 	struct vidc_hal_sys_init_done *sys_init_msg;
-	u32 index, i;
+	u32 index;
 
 	if (!IS_HAL_SYS_CMD(cmd)) {
 		dprintk(VIDC_ERR, "%s - invalid cmd\n", __func__);
@@ -718,20 +721,6 @@ static void handle_sys_init_done(enum hal_command_response cmd, void *data)
 	memcpy(core->capabilities, sys_init_msg->capabilities,
 		sys_init_msg->codec_count * sizeof(struct msm_vidc_capability));
 
-	 /* override capabilities for sdm450 */
-	if (core->resources.target_version == 1) {
-		for (i = 0; i < VIDC_MAX_SESSIONS; i++) {
-			if (core->capabilities[i].width.max > HD_WIDTH)
-				core->capabilities[i].width.max = HD_WIDTH;
-			if (core->capabilities[i].height.max > HD_WIDTH)
-				core->capabilities[i].height.max = HD_WIDTH;
-
-			core->capabilities[i].mbs_per_frame.max =
-					NUM_MBS_PER_FRAME(HD_WIDTH, HD_HEIGHT);
-			core->resources.max_inst_count =
-					MAX_SUPPORTED_INSTANCES;
-		}
-	}
 	dprintk(VIDC_DBG,
 		"%s: supported_codecs[%d]: enc = %#x, dec = %#x\n",
 		__func__, core->codec_count, core->enc_codec_supported,
@@ -740,14 +729,12 @@ static void handle_sys_init_done(enum hal_command_response cmd, void *data)
 	complete(&(core->completions[index]));
 
 }
-
 static void put_inst_helper(struct kref *kref)
 {
 	struct msm_vidc_inst *inst = container_of(kref,
-			struct msm_vidc_inst, kref);
+				struct msm_vidc_inst, kref);
 	msm_vidc_destroy(inst);
 }
-
 void put_inst(struct msm_vidc_inst *inst)
 {
 	if (!inst)
@@ -1852,7 +1839,7 @@ static void handle_ebd(enum hal_command_response cmd, void *data)
 				dprintk(VIDC_INFO,
 					"Failed : Corrupted input stream\n");
 				vbuf->flags |=
-					V4L2_QCOM_BUF_DATA_CORRUPT;
+					V4L2_BUF_FLAG_DATA_CORRUPT;
 			}
 			if (empty_buf_done->status ==
 				VIDC_ERR_START_CODE_NOT_FOUND) {
@@ -1949,7 +1936,7 @@ int buf_ref_put(struct msm_vidc_inst *inst, struct buffer_info *binfo)
 }
 
 static void handle_dynamic_buffer(struct msm_vidc_inst *inst,
-		ion_phys_addr_t device_addr, u32 flags)
+		phys_addr_t device_addr, u32 flags)
 {
 	struct buffer_info *binfo = NULL, *temp = NULL;
 
@@ -1988,7 +1975,7 @@ static void handle_dynamic_buffer(struct msm_vidc_inst *inst,
 }
 
 static int handle_multi_stream_buffers(struct msm_vidc_inst *inst,
-		ion_phys_addr_t dev_addr)
+		phys_addr_t dev_addr)
 {
 	struct internal_buf *binfo;
 	struct msm_smem *smem;
@@ -2146,7 +2133,7 @@ static void handle_fbd(enum hal_command_response cmd, void *data)
 		if (fill_buf_done->flags1 & HAL_BUFFERFLAG_DECODEONLY)
 			vbuf->flags |= V4L2_QCOM_BUF_FLAG_DECODEONLY;
 		if (fill_buf_done->flags1 & HAL_BUFFERFLAG_DATACORRUPT)
-			vbuf->flags |= V4L2_QCOM_BUF_DATA_CORRUPT;
+			vbuf->flags |= V4L2_BUF_FLAG_DATA_CORRUPT;
 		if (fill_buf_done->flags1 & HAL_BUFFERFLAG_DROP_FRAME)
 			vbuf->flags |= V4L2_QCOM_BUF_DROP_FRAME;
 		if (fill_buf_done->flags1 & HAL_BUFFERFLAG_MBAFF)
@@ -2651,7 +2638,7 @@ static int msm_comm_init_core(struct msm_vidc_inst *inst)
 		goto core_already_inited;
 	}
 	if (!core->capabilities) {
-		core->capabilities = kzalloc(VIDC_MAX_SESSIONS *
+		core->capabilities = kcalloc(VIDC_MAX_SESSIONS,
 				sizeof(struct msm_vidc_capability), GFP_KERNEL);
 		if (!core->capabilities) {
 			dprintk(VIDC_ERR,
@@ -3859,20 +3846,17 @@ int msm_comm_qbuf(struct msm_vidc_inst *inst, struct vb2_buffer *vb)
 	 * Don't queue if:
 	 * 1) Hardware isn't ready (that's simple)
 	 */
-	if (!defer)
-		defer = (inst->state != MSM_VIDC_START_DONE);
+	defer = defer ?: inst->state != MSM_VIDC_START_DONE;
 
 	/*
 	 * 2) The client explicitly tells us not to because it wants this
 	 * buffer to be batched with future frames.  The batch size (on both
 	 * capabilities) is completely determined by the client.
 	 */
-	if (!defer)
-		defer = (vbuf && vbuf->flags & V4L2_MSM_BUF_FLAG_DEFER);
+	defer = defer ?: vbuf && vbuf->flags & V4L2_MSM_BUF_FLAG_DEFER;
 
 	/* 3) If we're in batch mode, we must have full batches of both types */
-	if (!defer)
-		defer = (batch_mode && (!output_count || !capture_count));
+	defer = defer ?: batch_mode && (!output_count || !capture_count);
 
 	if (defer) {
 		dprintk(VIDC_DBG, "Deferring queue of %pK\n", vb);
@@ -4543,8 +4527,8 @@ static void msm_comm_flush_in_invalid_state(struct msm_vidc_inst *inst)
 		dprintk(VIDC_DBG, "Flushing buffers of type %d in bad state\n",
 				port);
 		mutex_lock(&inst->bufq[port].lock);
-		list_for_each_safe(ptr, next, &inst->bufq[port].
-				vb2_bufq.queued_list) {
+		list_for_each_safe(ptr, next,
+				&inst->bufq[port].vb2_bufq.queued_list) {
 			struct vb2_buffer *vb = container_of(ptr,
 					struct vb2_buffer, queued_entry);
 
@@ -5085,7 +5069,7 @@ static void msm_comm_generate_session_error(struct msm_vidc_inst *inst)
 	enum hal_command_response cmd = HAL_SESSION_ERROR;
 	struct msm_vidc_cb_cmd_done response = {0};
 
-	dprintk(VIDC_WARN, "msm_comm_generate_session_error\n");
+	dprintk(VIDC_WARN, "%s\n", __func__);
 	if (!inst || !inst->core) {
 		dprintk(VIDC_ERR, "%s: invalid input parameters\n", __func__);
 		return;
@@ -5289,8 +5273,8 @@ int msm_vidc_comm_s_parm(struct msm_vidc_inst *inst, struct v4l2_streamparm *a)
 		case V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE:
 			us_per_frame = a->parm.output.timeperframe.numerator *
 				(u64)USEC_PER_SEC;
-			do_div(us_per_frame, a->parm.output.
-				timeperframe.denominator);
+			do_div(us_per_frame,
+				a->parm.output.timeperframe.denominator);
 			break;
 		default:
 			dprintk(VIDC_ERR,
