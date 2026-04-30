@@ -53,8 +53,7 @@ static int v4l2_async_notifier_call_complete(struct v4l2_async_notifier *n)
 	return n->ops->complete(n);
 }
 
-static bool match_i2c(struct v4l2_async_notifier *notifier,
-		      struct v4l2_subdev *sd, struct v4l2_async_subdev *asd)
+static bool match_i2c(struct v4l2_subdev *sd, struct v4l2_async_subdev *asd)
 {
 #if IS_ENABLED(CONFIG_I2C)
 	struct i2c_client *client = i2c_verify_client(sd->dev);
@@ -66,14 +65,13 @@ static bool match_i2c(struct v4l2_async_notifier *notifier,
 #endif
 }
 
-static bool match_devname(struct v4l2_async_notifier *notifier,
-			  struct v4l2_subdev *sd, struct v4l2_async_subdev *asd)
+static bool match_devname(struct v4l2_subdev *sd,
+			  struct v4l2_async_subdev *asd)
 {
 	return !strcmp(asd->match.device_name, dev_name(sd->dev));
 }
 
-static bool match_fwnode(struct v4l2_async_notifier *notifier,
-			 struct v4l2_subdev *sd, struct v4l2_async_subdev *asd)
+static bool match_fwnode(struct v4l2_subdev *sd, struct v4l2_async_subdev *asd)
 {
 	struct fwnode_handle *other_fwnode;
 	struct fwnode_handle *dev_fwnode;
@@ -119,8 +117,7 @@ static bool match_fwnode(struct v4l2_async_notifier *notifier,
 	return dev_fwnode == other_fwnode;
 }
 
-static bool match_custom(struct v4l2_async_notifier *notifier,
-			 struct v4l2_subdev *sd, struct v4l2_async_subdev *asd)
+static bool match_custom(struct v4l2_subdev *sd, struct v4l2_async_subdev *asd)
 {
 	if (!asd->match.custom.match)
 		/* Match always */
@@ -136,8 +133,7 @@ static DEFINE_MUTEX(list_lock);
 static struct v4l2_async_subdev *v4l2_async_find_match(
 	struct v4l2_async_notifier *notifier, struct v4l2_subdev *sd)
 {
-	bool (*match)(struct v4l2_async_notifier *notifier,
-		      struct v4l2_subdev *sd, struct v4l2_async_subdev *asd);
+	bool (*match)(struct v4l2_subdev *, struct v4l2_async_subdev *);
 	struct v4l2_async_subdev *asd;
 
 	list_for_each_entry(asd, &notifier->waiting, list) {
@@ -162,7 +158,7 @@ static struct v4l2_async_subdev *v4l2_async_find_match(
 		}
 
 		/* match cannot be NULL here */
-		if (match(notifier, sd, asd))
+		if (match(sd, asd))
 			return asd;
 	}
 
