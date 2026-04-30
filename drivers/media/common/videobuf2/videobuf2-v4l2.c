@@ -683,8 +683,8 @@ unsigned int vb2_poll(struct vb2_queue *q, struct file *file, poll_table *wait)
 		struct v4l2_fh *fh = file->private_data;
 
 		if (v4l2_event_pending(fh))
-			res = POLLPRI;
-		else if (req_events & POLLPRI)
+			res = EPOLLPRI;
+		else if (req_events & EPOLLPRI)
 			poll_wait(file, &fh->wait, wait);
 	}
 
@@ -921,7 +921,7 @@ unsigned int vb2_fop_poll(struct file *file, poll_table *wait)
 	WARN_ON(!lock);
 
 	if (lock && mutex_lock_interruptible(lock))
-		return POLLERR;
+		return EPOLLERR;
 
 	fileio = q->fileio;
 
